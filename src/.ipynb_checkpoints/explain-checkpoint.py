@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+import operator
+import json
+import random
 import torch
 import dgl
 from captum.attr import Saliency, IntegratedGradients
@@ -7,7 +10,7 @@ from functools import partial
 from src.utils import *
 from src.gnn import *
 
-model = torch.load(f'Output/GNNModels/GCN')
+model = torch.load(f'Output/GNNModels/GraphSAGE')
 model = model.model
 
 def get_single_instance_graph(g, etype, idx):
@@ -49,8 +52,7 @@ def get_attr_node(imp_ntype, etype, input_features, pos_g, neg_g, idx, mode):
     
     return scale(attr_node)
 
-
-def get_imp_node_dic(etype, g_single_instance, g_neg_single_instance, mode):  
+def get_imp_node_dic(etype, g_single_instance, g_neg_single_instance, mode, k):  
     '''Gets dictionary having most important nodes'''
     imp_node_dic = {}
     
@@ -60,16 +62,94 @@ def get_imp_node_dic(etype, g_single_instance, g_neg_single_instance, mode):
                                       g_neg_single_instance, 0, mode)
             
             imp_node_list = []
+            scores = []
             for i in range(len(attr_node)):
-                if attr_node[i] > 0.5:
+                if attr_node[i] > 0:
                     imp_node_list.append(i)
+                    scores.append(attr_node[i].item())
             if len(imp_node_list) > 0:
                 imp_node_dic[ntype] = imp_node_list
+                imp_node_dic[ntype+'_scores'] = scores
                 
         except Exception:
             pass
         
-    return imp_node_dic
+    # only keep top k important nodes
+    new_imp_node_dic = {}
+    for ntype in g_single_instance.ntypes:
+        score_dict = {ntype: score for ntype, score in zip(imp_node_dic[ntype], imp_node_dic[ntype+'_scores'])} 
+        sorted_dict = dict(sorted(score_dict.items(), key=operator.itemgetter(1), reverse=True))
+        sorted_keys = list(sorted_dict.keys())
+        new_imp_node_dic[ntype] = sorted_keys[:k]
+            
+    return new_imp_node_dic
+
+def get_imp_node_dicts(g, etype, mode, keys, k):
+    '''Gets all the important node dictionaries'''
+
+    for i in range(len(g.edges(etype=etype, form='eid'))):
+        
+        print(mode + ': ' + str(i))
+        
+        g_single_instance, g_neg_single_instance, u, v = get_single_instance_graph(g, etype, i)
+        imp_node_dic = get_imp_node_dic(etype, g_single_instance, g_neg_single_instance, mode, k)
+        
+        with open(f"Output/Explainability/Alzheimer/imp_node_dict_{i}_{mode}.json", "w") as file:
+            json.dump(imp_node_dic, file)
+
+def get_attr_edge(imp_etype, etype, input_features, pos_g, neg_g, edge_weight, idx, mode):
+    '''Returns most important edges'''
+    x_etype = edge_weight[imp_etype]
+    
+    if mode == 'ig':
+        ig = IntegratedGradients(partial(model_forward_edge_weight, imp_etype=imp_etype, pos_g=pos_g, neg_g=neg_g, input_features=input_features, 
+                                         etype=etype, edge_weight=edge_weight, idx=idx))
+        attr_edge = ig.attribute(x_etype, target=0, internal_batch_size=1, n_steps=50)
+    
+    elif mode == 'sal':
+        sal = Saliency(partial(model_forward_edge_weight, imp_etype=imp_etype, pos_g=pos_g, neg_g=neg_g, input_features=input_features, 
+                               etype=etype, edge_weight=edge_weight, idx=idx))
+        attr_edge = sal.attribute(x_etype, target=0)
+    
+    return attr_edge
+
+def get_imp_edge_dic(etype, g_single_instance, g_neg_single_instance, edge_weight, mode):   
+    '''Gets dictionary having most important edges'''
+    imp_edge_dic = {}
+    
+    for imp_etype in g_single_instance.canonical_etypes:
+        try:
+            attr_edge = get_attr_edge(imp_etype[1], etype, g_single_instance.ndata['h'], g_single_instance, 
+                                      g_neg_single_instance, edge_weight, 0, mode)
+            
+            attr_edge = attr_edge.clamp(min=0, max=1)
+            imp_edge_list = []
+            scores = []
+            for i in range(len(attr_edge)):
+                if attr_edge[i] > 0:
+                    imp_edge_list.append(i)
+                    scores.append(attr_edge[i].item())
+            if len(imp_edge_list) > 0:
+                imp_edge_dic[etype[1]] = imp_edge_list
+                imp_edge_dic[etype[1]+'_scores'] = scores
+                
+        except Exception:
+            pass
+        
+    return imp_edge_dic
+
+def get_imp_edge_dicts(g, etype, mode, keys, edge_weight):
+    '''Gets all the important edge dictionaries'''
+
+    for i in range(len(g.edges(etype=etype, form='eid'))):
+        
+        print(mode + ': ' + str(i))
+        
+        g_single_instance, g_neg_single_instance, u, v = get_single_instance_graph(g, etype, i)
+        imp_edge_dic = get_imp_edge_dic(etype, g_single_instance, g_neg_single_instance, edge_weight, mode)
+        
+        with open(f"Output/Explainability/Alzheimer/imp_edge_dict_{i}_{mode}.json", "w") as file:
+            json.dump(imp_edge_dic, file)
 
 def get_explain_y_hat(g_single_instance, imp_node_dic, etype, u, v):
     '''Explain_y_hat - input: graph without unimportant nodes/edges'''
@@ -89,7 +169,7 @@ def get_explain_y_hat(g_single_instance, imp_node_dic, etype, u, v):
     return model(g_explain, g_neg_explain, g_explain.ndata['h'], etype)
 
 def get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v):   
-    '''Complement_y_hat - input: graph without unimportant nodes/edges'''
+    '''Complement_y_hat - input: graph without important nodes/edges'''
     g_complement = g_single_instance
 
     for ntype in list(imp_node_dic.keys()):
@@ -99,3 +179,69 @@ def get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v):
     g_complement = dgl.add_edges(g_complement, u, v, etype=etype)
     g_neg_complement = construct_negative_graph(g_complement, etype, 5)
     return model(g_complement, g_neg_complement, g_complement.ndata['h'], etype)
+
+def sample_heads(true_head, embed):
+    '''Samples random heads to compute Hits@5, Hits@10'''
+    num_neg_samples = 0
+    max_num = 99
+    candidates = []
+    nodes = list(range(embed['Compound'].size()[0]))
+    random.shuffle(nodes)
+
+    while num_neg_samples < max_num:    
+        sample_head = nodes[num_neg_samples]
+        if sample_head != true_head:
+            candidates.append(sample_head)
+        num_neg_samples += 1
+    
+    candidates.append(true_head.item())
+    candidates_embeds = torch.index_select(embed['Compound'], 0, torch.tensor(candidates))
+
+    return candidates, candidates_embeds
+
+def get_rank(true_head, true_tail, embed):
+    '''Gets rank of true head'''
+    x = torch.select(embed['Disease'], 0, true_tail)
+    x = x.view(1, x.size()[0])
+
+    candidates, candidates_embeds = sample_heads(true_head, embed)
+
+    distances = torch.cdist(candidates_embeds, x, p=2)
+    dist_dict = {cand: dist for cand, dist in zip(candidates, distances)} 
+
+    sorted_dict = dict(sorted(dist_dict.items(), key=operator.itemgetter(1), reverse=True))
+    sorted_keys = list(sorted_dict.keys())
+
+    ranks_dict = {sorted_keys[i]: i for i in range(0, len(sorted_keys))}
+    rank = ranks_dict[true_head.item()]
+    return rank
+
+def get_all_ranks(g, etype, mode, keys):
+    '''Gets all the ranks having as input either g, g_explain or g_complement'''
+    ranks = []
+    ranks_explain = []
+    ranks_complement = []
+
+    for i in range(len(g.edges(etype=etype, form='eid'))):
+        
+        print(mode + ': ' + str(i))
+        
+        g_single_instance, g_neg_single_instance, u, v = get_single_instance_graph(g, etype, i)
+                  
+        with open(f'Output/Explainability/Alzheimer/imp_node_dict_{i}_{mode}.json') as file:
+            imp_node_dic = json.load(file)
+        imp_node_dic = {k:v for k,v in imp_node_dic.items() if k in keys}
+
+        _, _, embed = model(g_single_instance, g_neg_single_instance, g_single_instance.ndata['h'], etype)
+        rank = get_rank(u, v, embed)
+        ranks.append(rank)
+        
+        _, _, embed_explain = get_explain_y_hat(g_single_instance, imp_node_dic, etype, u, v,)
+        rank = get_rank(u, v, embed_explain)
+        ranks_explain.append(rank)
+
+        _, _, embed_complement = get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v,)
+        rank = get_rank(u, v, embed_complement)
+        ranks_complement.append(rank)
+    
+    return ranks, ranks_explain, ranks_complement

@@ -30,10 +30,14 @@ def get_edge_dict(df, node_dict):
         src_type = src.split('::')[0]
         dest = str(triple[2])
         dest_type = dest.split('::')[0]
-
-        src_id = node_dict[src_type][src]
-        dest_id = node_dict[dest_type][dest]
-
+        
+        try:
+            src_id = node_dict[src_type][src]
+            dest_id = node_dict[dest_type][dest]
+        
+        except:
+            continue
+        
         pair = (src_id, dest_id)
         etype = (src_type, triple[1], dest_type)
         if etype in edge_dict:

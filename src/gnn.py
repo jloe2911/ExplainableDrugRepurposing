@@ -83,7 +83,7 @@ class Model():
         print(f'Precision: {precision:.4f}')
         print(f'Recall: {recall:.4f}')
         print(f'F1-Score: {f1score:.4f}')
-
+        
 def split_train_test(g, etype, split=0.8):
     '''Helper function to create train and test graphs'''
     eids = np.arange(g.number_of_edges(etype))
