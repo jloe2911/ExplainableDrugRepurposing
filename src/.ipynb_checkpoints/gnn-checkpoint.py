@@ -50,7 +50,7 @@ class Model():
         self.g_test = g_test
         self.node_features = node_features
         
-    def _train(self, epochs=300):
+    def _train(self, epochs=500):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=0.005, weight_decay=5e-4)
         
         for epoch in range(epochs+1): 
@@ -70,20 +70,33 @@ class Model():
     
     def _eval(self):
         self.model.eval()
+        true_heads = self.g_test.edges(etype=self.etype2pred, form='uv')[0]
+        true_tails = self.g_test.edges(etype=self.etype2pred, form='uv')[1]
+        n = len(true_heads)
         g_neg_test = construct_negative_graph(self.g_test, self.etype2pred)
         pos_score, neg_score, h = self.model(self.g_test, g_neg_test, self.node_features, self.etype2pred)
-        scores = torch.cat([pos_score, neg_score]).view(-1).detach().numpy()
-        scores = normalize_arr(scores, scores.min(), scores.max())
-        scores = np.where(scores >= 0.5, 1, 0)
-        labels = torch.cat([torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).detach().numpy()
         
+        #hits@5, hits@10
+        top5 = 0
+        top10 = 0
+
+        for true_head, true_tail in zip(true_heads, true_tails):
+            rank = get_rank(true_head, true_tail, h)
+            if rank <= 5:
+                top5 += 1
+            if rank <= 10:
+                top10 += 1
+        
+        #precision, recall, f1-score
+        scores = torch.cat([pos_score, neg_score]).view(-1).detach().numpy()
+        scores = np.where(scores >= 0.6, 1, 0)
+        labels = torch.cat([torch.ones(pos_score.shape[0]), torch.zeros(neg_score.shape[0])]).detach().numpy()
         precision = precision_score(labels, scores)
         recall = recall_score(labels, scores)
-        f1score = f1_score(labels, scores)
-        print(f'Precision: {precision:.4f}')
-        print(f'Recall: {recall:.4f}')
-        print(f'F1-Score: {f1score:.4f}')
+        f1 = f1_score(labels, scores)
         
+        return top5/n, top10/n, precision, recall, f1
+    
 def split_train_test(g, etype, split=0.8):
     '''Helper function to create train and test graphs'''
     eids = np.arange(g.number_of_edges(etype))

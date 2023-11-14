@@ -15,5 +15,5 @@ wget https://dgl-data.s3-us-west-2.amazonaws.com/dataset/DRKG/drkg.tar.gz
 ### Quick Tour
 
 * TrainGNN.ipynb : Takes as input ```drkg.tsv``` and outputs a trained Graph Neural Network (can be either GCN, GraphSAGE or GAT) to ```Output/GNNModels```.
-* ExplainabilityUseCase.ipynb : Takes as input a model and its precitions, and returns a dictionary (for a specific use case) containing the most important nodes that were most influential for the prediction(s) using Integrated Gradients and Saliency Maps.
+* ExplainabilityUseCase.ipynb : Takes as input a model and its precitions, and returns a dictionary (for a specific use case) containing the most important nodes that were most influential for the prediction(s) using Saliency Maps.
 * PlotSubgraph.ipynb : Plots the explanatory subgraph.

@@ -80,7 +80,9 @@ def get_imp_node_dic(etype, g_single_instance, g_neg_single_instance, mode, k):
         score_dict = {ntype: score for ntype, score in zip(imp_node_dic[ntype], imp_node_dic[ntype+'_scores'])} 
         sorted_dict = dict(sorted(score_dict.items(), key=operator.itemgetter(1), reverse=True))
         sorted_keys = list(sorted_dict.keys())
+        sorted_values = list(sorted_dict.values())
         new_imp_node_dic[ntype] = sorted_keys[:k]
+        new_imp_node_dic[ntype+'_score'] = sorted_values[:k]
             
     return new_imp_node_dic
 
@@ -179,42 +181,6 @@ def get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v):
     g_complement = dgl.add_edges(g_complement, u, v, etype=etype)
     g_neg_complement = construct_negative_graph(g_complement, etype, 5)
     return model(g_complement, g_neg_complement, g_complement.ndata['h'], etype)
-
-def sample_heads(true_head, embed):
-    '''Samples random heads to compute Hits@5, Hits@10'''
-    num_neg_samples = 0
-    max_num = 99
-    candidates = []
-    nodes = list(range(embed['Compound'].size()[0]))
-    random.shuffle(nodes)
-
-    while num_neg_samples < max_num:    
-        sample_head = nodes[num_neg_samples]
-        if sample_head != true_head:
-            candidates.append(sample_head)
-        num_neg_samples += 1
-    
-    candidates.append(true_head.item())
-    candidates_embeds = torch.index_select(embed['Compound'], 0, torch.tensor(candidates))
-
-    return candidates, candidates_embeds
-
-def get_rank(true_head, true_tail, embed):
-    '''Gets rank of true head'''
-    x = torch.select(embed['Disease'], 0, true_tail)
-    x = x.view(1, x.size()[0])
-
-    candidates, candidates_embeds = sample_heads(true_head, embed)
-
-    distances = torch.cdist(candidates_embeds, x, p=2)
-    dist_dict = {cand: dist for cand, dist in zip(candidates, distances)} 
-
-    sorted_dict = dict(sorted(dist_dict.items(), key=operator.itemgetter(1), reverse=True))
-    sorted_keys = list(sorted_dict.keys())
-
-    ranks_dict = {sorted_keys[i]: i for i in range(0, len(sorted_keys))}
-    rank = ranks_dict[true_head.item()]
-    return rank
 
 def get_all_ranks(g, etype, mode, keys):
     '''Gets all the ranks having as input either g, g_explain or g_complement'''

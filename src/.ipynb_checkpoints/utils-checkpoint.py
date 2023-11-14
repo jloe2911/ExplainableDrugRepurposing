@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import torch
+import operator
+import random
 
 def insert_entry(entry, ntype, dic):
     if ntype not in dic:
@@ -72,3 +74,44 @@ def normalize_arr(arr, x_min, x_max):
     for i in arr:
         new_arr.append((i-x_min)/(x_max-x_min))
     return np.array(new_arr)
+
+def sample_heads(true_head, embed):
+    '''Samples random heads to compute Hits@5, Hits@10'''
+    num_neg_samples = 0
+    max_num = 99
+    candidates = []
+    nodes = list(range(embed['Compound'].size()[0]))
+    random.shuffle(nodes)
+
+    while num_neg_samples < max_num:    
+        sample_head = nodes[num_neg_samples]
+        if sample_head != true_head:
+            candidates.append(sample_head)
+        num_neg_samples += 1
+    
+    candidates.append(true_head.item())
+    candidates_embeds = torch.index_select(embed['Compound'], 0, torch.tensor(candidates))
+
+    return candidates, candidates_embeds
+
+def get_rank(true_head, true_tail, embed):
+    '''Gets rank of true head'''
+    
+    a = embed['Disease'].shape[0]
+    b = embed['Disease'].shape[-1]
+    embed['Disease'] = torch.reshape(embed['Disease'], (a, b))
+
+    x = torch.select(embed['Disease'], 0, true_tail)
+    x = x.view(1, x.size()[0])
+
+    candidates, candidates_embeds = sample_heads(true_head, embed)
+
+    distances = torch.cdist(candidates_embeds, x, p=2)
+    dist_dict = {cand: dist for cand, dist in zip(candidates, distances)} 
+
+    sorted_dict = dict(sorted(dist_dict.items(), key=operator.itemgetter(1), reverse=True))
+    sorted_keys = list(sorted_dict.keys())
+
+    ranks_dict = {sorted_keys[i]: i for i in range(0, len(sorted_keys))}
+    rank = ranks_dict[true_head.item()]
+    return rank
