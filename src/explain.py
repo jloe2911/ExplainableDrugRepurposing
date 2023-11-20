@@ -182,32 +182,35 @@ def get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v):
     g_neg_complement = construct_negative_graph(g_complement, etype, 5)
     return model(g_complement, g_neg_complement, g_complement.ndata['h'], etype)
 
-def get_all_ranks(g, etype, mode, keys):
-    '''Gets all the ranks having as input either g, g_explain or g_complement'''
-    ranks = []
-    ranks_explain = []
-    ranks_complement = []
-
+def get_all_predictions(g, etype, mode, keys):
+    '''Gets all the predictions having as input either g, g_explain or g_complement'''
+    y_ = []
+    y_explain = []
+    y_complement = []
+    
     for i in range(len(g.edges(etype=etype, form='eid'))):
         
         print(mode + ': ' + str(i))
-        
+    
         g_single_instance, g_neg_single_instance, u, v = get_single_instance_graph(g, etype, i)
-                  
+
         with open(f'Output/Explainability/Alzheimer/imp_node_dict_{i}_{mode}.json') as file:
             imp_node_dic = json.load(file)
         imp_node_dic = {k:v for k,v in imp_node_dic.items() if k in keys}
 
-        _, _, embed = model(g_single_instance, g_neg_single_instance, g_single_instance.ndata['h'], etype)
-        rank = get_rank(u, v, embed)
-        ranks.append(rank)
-        
-        _, _, embed_explain = get_explain_y_hat(g_single_instance, imp_node_dic, etype, u, v,)
-        rank = get_rank(u, v, embed_explain)
-        ranks_explain.append(rank)
+        pos_score, _, embed = model(g_single_instance, g_neg_single_instance, g_single_instance.ndata['h'], etype)
+        #rank = get_rank(u, v, embed)
+        y = pos_score[0].reshape([1, 1])
+        y_.append(y)
 
-        _, _, embed_complement = get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v,)
-        rank = get_rank(u, v, embed_complement)
-        ranks_complement.append(rank)
-    
-    return ranks, ranks_explain, ranks_complement
+        pos_score, _, embed_explain = get_explain_y_hat(g_single_instance, imp_node_dic, etype, u, v,)
+        #rank = get_rank(u, v, embed_explain)
+        y = pos_score[0].reshape([1, 1])
+        y_explain.append(y)
+
+        pos_score, _, embed_complement = get_complement_y_hat(g_single_instance, imp_node_dic, etype, u, v,)
+        #rank = get_rank(u, v, embed_complement)
+        y = pos_score[0].reshape([1, 1])
+        y_complement.append(y)
+
+    return y_, y_explain, y_complement
