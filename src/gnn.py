@@ -96,6 +96,12 @@ class Model():
         f1 = f1_score(labels, scores)
         
         return top5/n, top10/n, precision, recall, f1
+    def get_embeddings(self):
+        self.model.eval()
+        with torch.no_grad():
+            # Use the training graph to get the embeddings
+            _, _, h = self.model(self.g_train, self.g_train, self.node_features, self.etype2pred)
+        return h
     
 def split_train_test(g, etype, split=0.8):
     '''Helper function to create train and test graphs'''
